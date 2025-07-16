@@ -63,3 +63,8 @@ This means the pipeline is **not fully general-purpose** — it's suitable for c
     <fuel>Petrol</fuel>
   </record>
 </root>
+```
+
+## License
+
+This is a modified version of code provided as part of IBM’s Data Engineering course material. Use and adapt freely for learning purposes or internal projects.
