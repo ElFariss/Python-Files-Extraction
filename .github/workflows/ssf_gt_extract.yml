@@ -1,0 +1,98 @@
+name: SSF GT Archive Extract
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download and extract BBWS manual archive
+        shell: bash
+        run: |
+          python - <<'PY'
+          import csv
+          import json
+          import re
+          import urllib.request
+          from pathlib import Path
+
+          url = "https://raw.githubusercontent.com/billbull21/sitimas/master/public/data/2025.json"
+          raw_path = Path("sitimas_2025.json")
+          urllib.request.urlretrieve(url, raw_path)
+
+          with raw_path.open("r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          def number(value):
+              if value is None:
+                  return ""
+              text = str(value).strip()
+              if not text or text == "-":
+                  return ""
+              match = re.search(r"[-+]?\d+(?:\.\d+)?", text)
+              return match.group(0) if match else ""
+
+          rows = []
+          for date, stations in sorted(data.items()):
+              if date < "2025-09-19":
+                  continue
+              for station in stations or []:
+                  pos = station.get("pos") or {}
+                  manual = station.get("manual") or {}
+                  rows.append({
+                      "date": date,
+                      "station_id": pos.get("id", ""),
+                      "station_name": pos.get("nama", ""),
+                      "manual_06": number(manual.get("enam")),
+                      "manual_12": number(manual.get("duabelas")),
+                      "manual_18": number(manual.get("delapanbelas")),
+                      "telemetry_06": number(((station.get("pagi") or [{}])[0]).get("wlevel_mdpl")),
+                      "telemetry_12": number(((station.get("siang") or [{}])[0]).get("wlevel_mdpl")),
+                      "telemetry_18": number(((station.get("sore") or [{}])[0]).get("wlevel_mdpl")),
+                  })
+
+          out = Path("ssf_archive_2025_hidden_segment.csv")
+          fields = [
+              "date", "station_id", "station_name",
+              "manual_06", "manual_12", "manual_18",
+              "telemetry_06", "telemetry_12", "telemetry_18",
+          ]
+          with out.open("w", newline="", encoding="utf-8") as f:
+              writer = csv.DictWriter(f, fieldnames=fields)
+              writer.writeheader()
+              writer.writerows(rows)
+
+          dates = sorted(data)
+          summary = {
+              "source_url": url,
+              "source_bytes": raw_path.stat().st_size,
+              "archive_first_date": dates[0] if dates else None,
+              "archive_last_date": dates[-1] if dates else None,
+              "archive_date_count": len(dates),
+              "hidden_segment_rows": len(rows),
+              "hidden_segment_first_date": min((r["date"] for r in rows), default=None),
+              "hidden_segment_last_date": max((r["date"] for r in rows), default=None),
+          }
+          Path("ssf_archive_summary.json").write_text(
+              json.dumps(summary, indent=2), encoding="utf-8"
+          )
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Upload extracted validation archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssf-gt-archive-2025
+          path: |
+            ssf_archive_2025_hidden_segment.csv
+            ssf_archive_summary.json
+          if-no-files-found: error
+          retention-days: 1
